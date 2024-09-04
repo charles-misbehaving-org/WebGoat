@@ -1,8 +1,5 @@
 name: Auto-Generate and Close PR
 
-permissions:
-  pull-requests: write
-  contents: write
 
 on:
   schedule:
