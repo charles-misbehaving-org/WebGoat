@@ -1,0 +1,103 @@
+name: Daily README Update
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs every day at midnight UTC
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  create_or_update_pull_request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Git config
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Update README date
+        run: |
+          sed -i "s/\(Last updated: \).*/\1$(date +'%Y-%m-%d %H:%M')/" README.md
+
+      - name: Add and commit changes
+        run: |
+          git add README.md
+          git commit -m "Update README with today's date"
+
+      - name: Create or update Pull Request
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { Octokit } = require('@octokit/core');
+            const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+            // Check for existing PRs created by this workflow
+            const { data: prList } = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
+              owner: context.repo.owner.login,
+              repo: context.repo.repo,
+              state: 'open',
+              sort: 'created',
+              direction: 'desc'
+            });
+
+            // If there's an existing PR, update the branch
+            if (prList.length > 0) {
+              const pr = prList[0];
+              await octokit.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch', {
+                owner: context.repo.owner.login,
+                repo: context.repo.repo,
+                pull_number: pr.number
+              });
+            } else {
+              // Otherwise, create a new PR
+              const { data: ref } = await octokit.request('GET /repos/{owner}/{repo}/git/refs/heads/main', {
+                owner: context.repo.owner.login,
+                repo: context.repo.repo
+              });
+
+              await octokit.request('POST /repos/{owner}/{repo}/pulls', {
+                owner: context.repo.owner.login,
+                repo: context.repo.repo,
+                title: 'Update README with today\'s date',
+                body: 'This PR updates the README file with the current date and time.',
+                head: context.ref,
+                base: 'main'
+              });
+            }
+
+  merge_pull_request:
+    runs-on: ubuntu-latest
+    depends_on: create_or_update_pull_request
+    steps:
+      - name: Wait for 30 minutes before merging
+        wait: 1800 # 30 minutes in seconds
+
+      - name: Merge Pull Request
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { Octokit } = require('@octokit/core');
+            const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+            // Get the PR created by this workflow
+            const { data: prList } = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
+              owner: context.repo.owner.login,
+              repo: context.repo.repo,
+              state: 'open',
+              sort: 'created',
+              direction: 'desc'
+            });
+
+            if (prList.length > 0) {
+              const pr = prList[0];
+              await octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/merge', {
+                owner: context.repo.owner.login,
+                repo: context.repo.repo,
+                pull_number: pr.number
+              });
+            }
